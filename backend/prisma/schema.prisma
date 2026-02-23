@@ -1,0 +1,327 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model clinicas {
+  id         Int       @id @default(autoincrement())
+  nome       String    @db.VarChar(255)
+  cnpj       String?   @unique @db.VarChar(14)
+  telefone   String?   @db.VarChar(20)
+  endereco   String?
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  updated_at DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model users {
+  id            String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email         String    @unique @db.VarChar(255)
+  password_hash String    @db.VarChar(255)
+  role          String    @db.VarChar(50)
+  clinica_id    Int?
+  is_active     Boolean?  @default(true)
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  last_login    DateTime? @db.Timestamptz(6)
+}
+
+model pacientes {
+  id                   Int       @id @default(autoincrement())
+  clinica_id           Int
+  nome                 String    @db.VarChar(255)
+  cpf                  String    @unique @db.VarChar(11)
+  data_nascimento      DateTime  @db.Date
+  telefone             String?   @db.VarChar(20)
+  email                String?   @db.VarChar(255)
+  endereco             String?
+  responsavel_nome     String?   @db.VarChar(255)
+  responsavel_cpf      String?   @db.VarChar(11)
+  responsavel_telefone String?   @db.VarChar(20)
+  observacoes          String?
+  ativo                Boolean?  @default(true)
+  created_at           DateTime? @default(now()) @db.Timestamp(6)
+  updated_at           DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([clinica_id], map: "idx_pacientes_clinica")
+  @@index([clinica_id], map: "idx_pacientes_clinica_id")
+  @@index([cpf], map: "idx_pacientes_cpf")
+}
+
+model dentistas {
+  id            Int       @id @default(autoincrement())
+  clinica_id    Int
+  nome          String    @db.VarChar(255)
+  cro           String    @db.VarChar(50)
+  especialidade String?   @db.VarChar(100)
+  telefone      String?   @db.VarChar(20)
+  email         String?   @db.VarChar(255)
+  ativo         Boolean?  @default(true)
+  created_at    DateTime? @default(now()) @db.Timestamp(6)
+
+  @@unique([cro, clinica_id], map: "unique_cro_clinica")
+  @@index([clinica_id], map: "idx_dentistas_clinica_id")
+}
+
+model consultas {
+  id              Int       @id @default(autoincrement())
+  clinica_id      Int
+  paciente_id     Int
+  dentista_id     Int
+  data_hora       DateTime  @db.Timestamp(6)
+  duracao_minutos Int?      @default(60)
+  status          String    @db.VarChar(50)
+  tipo_consulta   String    @db.VarChar(100)
+  observacoes     String?
+  valor_total     Decimal?  @db.Decimal(10, 2)
+  created_at      DateTime? @default(now()) @db.Timestamp(6)
+  updated_at      DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([clinica_id], map: "idx_consultas_clinica")
+  @@index([dentista_id], map: "idx_consultas_dentista")
+  @@index([paciente_id], map: "idx_consultas_paciente")
+}
+
+model procedimentos {
+  id         Int       @id @default(autoincrement())
+  clinica_id Int
+  codigo     String    @db.VarChar(50)
+  nome       String    @db.VarChar(255)
+  descricao  String?
+  valor_base Decimal?  @db.Decimal(10, 2)
+  ativo      Boolean?  @default(true)
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+
+  @@unique([codigo, clinica_id], map: "unique_codigo_clinica")
+}
+
+model consulta_procedimentos {
+  id              Int       @id @default(autoincrement())
+  consulta_id     Int
+  procedimento_id Int
+  dente_numero    Int?
+  face            String?   @db.VarChar(10)
+  quantidade      Int?      @default(1)
+  valor_unitario  Decimal?  @db.Decimal(10, 2)
+  valor_total     Decimal?  @db.Decimal(10, 2)
+  observacoes     String?
+  created_at      DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([consulta_id], map: "idx_consulta_procedimentos_consulta")
+}
+
+model odontogramas {
+  id             Int       @id @default(autoincrement())
+  clinica_id     Int
+  paciente_id    Int
+  dentista_id    Int?      // opcional para registro por dente
+  data_avaliacao DateTime? @db.Date
+  estado_dentes  Json?     // legado; uso atual é por dente (dente_num/estado)
+  dente_num      String?  @db.VarChar(10)  // ISO 3950 (ex: 11, 21)
+  estado         String?  @db.VarChar(50)  // sadio, cariado, obturado, etc.
+  faces          Json?
+  data_registro  DateTime? @db.Timestamp(6)
+  criado_por     String?  @db.Uuid
+  observacoes    String?
+  created_at     DateTime? @default(now()) @db.Timestamp(6)
+  updated_at     DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([paciente_id], map: "idx_odontogramas_paciente")
+  @@index([paciente_id, dente_num], map: "idx_odontogramas_paciente_dente")
+}
+
+model pagamentos {
+  id              Int       @id @default(autoincrement())
+  clinica_id      Int
+  consulta_id     Int
+  forma_pagamento String    @db.VarChar(50)
+  valor           Decimal   @db.Decimal(10, 2)
+  data_pagamento  DateTime? @default(now()) @db.Timestamp(6)
+  parcelas        Int?      @default(1)
+  observacoes     String?
+  created_at      DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([consulta_id], map: "idx_pagamentos_consulta")
+}
+
+model anamnese_perguntas {
+  id         Int       @id @default(autoincrement())
+  clinica_id Int
+  ordem      Int       @default(0)
+  pergunta   String    @db.VarChar(500)
+  tipo       String    @db.VarChar(20)
+  ativo      Boolean?  @default(true)
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([clinica_id], map: "idx_anamnese_perguntas_clinica")
+}
+
+model anamnese_respostas {
+  id          Int       @id @default(autoincrement())
+  paciente_id Int
+  pergunta_id Int
+  valor       String?   @db.Text
+  updated_at  DateTime? @default(now()) @db.Timestamp(6)
+
+  @@unique([paciente_id, pergunta_id], map: "unique_anamnese_paciente_pergunta")
+  @@index([paciente_id], map: "idx_anamnese_respostas_paciente")
+}
+
+model contas_pagar {
+  id          Int       @id @default(autoincrement())
+  clinica_id  Int
+  descricao   String    @db.VarChar(255)
+  valor       Decimal   @db.Decimal(10, 2)
+  vencimento  DateTime  @db.Date
+  pago_em     DateTime? @db.Date
+  status      String    @db.VarChar(20)
+  observacoes String?   @db.Text
+  created_at  DateTime? @default(now()) @db.Timestamp(6)
+  updated_at  DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([clinica_id], map: "idx_contas_pagar_clinica")
+  @@index([vencimento], map: "idx_contas_pagar_vencimento")
+}
+
+model appointment_procedures {
+  id             String  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  appointment_id String? @db.Uuid
+  procedure_id   String? @db.Uuid
+  quantity       Int?    @default(1)
+  unit_price     Decimal @db.Decimal(10, 2)
+  total_price    Decimal @db.Decimal(10, 2)
+  tooth_number   String? @db.VarChar(10)
+  face           String? @db.VarChar(20)
+}
+
+model appointments {
+  id              String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  patient_id      String?   @db.Uuid
+  professional_id String?   @db.Uuid
+  start_time      DateTime  @db.Timestamptz(6)
+  end_time        DateTime  @db.Timestamptz(6)
+  status          String?   @default("SCHEDULED") @db.VarChar(50)
+  observations    String?
+  created_by      String?   @db.Uuid
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model audit_logs {
+  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id    String?   @db.Uuid
+  table_name String?   @db.VarChar(50)
+  record_id  String?   @db.Uuid
+  action     String?   @db.VarChar(20)
+  old_values Json?
+  new_values Json?
+  ip_address String?   @db.VarChar(50)
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model clinical_records {
+  id              String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  appointment_id  String?   @db.Uuid
+  patient_id      String?   @db.Uuid
+  professional_id String?   @db.Uuid
+  subject         String?
+  evolution       String
+  prescription    String?
+  attachments     Json?
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model financial_transactions {
+  id              String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  appointment_id  String?   @db.Uuid
+  total_amount    Decimal   @db.Decimal(10, 2)
+  discount_amount Decimal?  @default(0) @db.Decimal(10, 2)
+  final_amount    Decimal   @db.Decimal(10, 2)
+  status          String?   @default("PENDING") @db.VarChar(50)
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model health_plans {
+  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name             String   @db.VarChar(150)
+  cnpj             String?  @db.VarChar(18)
+  copay_percentage Decimal? @default(0) @db.Decimal(5, 2)
+  is_active        Boolean? @default(true)
+}
+
+model invoices {
+  id             String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  transaction_id String?   @db.Uuid
+  invoice_number String?   @db.VarChar(50)
+  access_key     String?   @db.VarChar(44)
+  series         String?   @db.VarChar(10)
+  issued_at      DateTime? @db.Timestamptz(6)
+  xml_path       String?   @db.VarChar(500)
+  pdf_path       String?   @db.VarChar(500)
+  status         String?   @default("NOT_ISSUED") @db.VarChar(50)
+  email_sent     Boolean?  @default(false)
+  email_sent_at  DateTime? @db.Timestamptz(6)
+}
+
+model patient_plans {
+  id             String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  patient_id     String?   @db.Uuid
+  health_plan_id String?   @db.Uuid
+  card_number    String?   @db.VarChar(100)
+  validity_date  DateTime? @db.Date
+  is_primary     Boolean?  @default(true)
+  created_at     DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model patients {
+  id                      String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  full_name               String    @db.VarChar(255)
+  cpf                     String    @unique @db.VarChar(14)
+  birth_date              DateTime  @db.Date
+  gender                  String?   @db.VarChar(20)
+  phone_primary           String?   @db.VarChar(20)
+  phone_secondary         String?   @db.VarChar(20)
+  email                   String?   @db.VarChar(255)
+  address_street          String?   @db.VarChar(255)
+  address_number          String?   @db.VarChar(20)
+  address_complement      String?   @db.VarChar(50)
+  address_city            String?   @db.VarChar(100)
+  address_state           String?   @db.VarChar(2)
+  address_zipcode         String?   @db.VarChar(10)
+  emergency_contact_name  String?   @db.VarChar(255)
+  emergency_contact_phone String?   @db.VarChar(20)
+  created_at              DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model payments {
+  id                 String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  transaction_id     String?   @db.Uuid
+  payment_method     String    @db.VarChar(50)
+  provider_reference String?   @db.VarChar(255)
+  installment_count  Int?      @default(1)
+  amount             Decimal   @db.Decimal(10, 2)
+  paid_at            DateTime? @db.Timestamptz(6)
+  status             String?   @default("PENDING") @db.VarChar(50)
+}
+
+model procedures_catalog {
+  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code             String?  @unique @db.VarChar(50)
+  name             String   @db.VarChar(255)
+  description      String?
+  base_price       Decimal  @db.Decimal(10, 2)
+  duration_minutes Int?     @default(30)
+  is_active        Boolean? @default(true)
+}
+
+model professionals {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id    String?  @db.Uuid
+  full_name  String   @db.VarChar(255)
+  cro_number String?  @db.VarChar(50)
+  cro_state  String?  @db.VarChar(2)
+  speciality String?  @db.VarChar(100)
+  is_active  Boolean? @default(true)
+}

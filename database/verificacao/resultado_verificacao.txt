@@ -1,0 +1,44 @@
+
+-- LISTAR TODAS AS TABELAS
+
+psql: error: connection to server at "localhost" (::1), port 5432 failed: FATAL:  password authentication failed for user "postgres"
+
+
+
+-- VERIFICAR QUANTIDADE DE REGISTROS
+
+ERROR:  column "tablename" does not exist
+LINE 1: SELECT tablename, n_live_tup as registros FROM pg_stat_user_...
+               ^
+
+
+
+-- VERIFICAR DADOS SENSÍVEIS
+
+psql: error: connection to server at "localhost" (::1), port 5432 failed: fe_sendauth: no password supplied
+
+
+
+-- VERIFICAR SE EXISTEM USUÁRIOS
+
+psql: error: connection to server at "localhost" (::1), port 5432 failed: fe_sendauth: no password supplied
+
+
+
+-- VERIFICAR FOREIGN KEYS
+
+psql: error: connection to server at "localhost" (::1), port 5432 failed: fe_sendauth: no password supplied
+
+
+
+-- VERIFICAR ÍNDICES
+
+psql: error: connection to server at "localhost" (::1), port 5432 failed: fe_sendauth: no password supplied
+
+
+
+-- VERIFICAR RLS
+
+psql: error: connection to server at "localhost" (::1), port 5432 failed: fe_sendauth: no password supplied
+
+
