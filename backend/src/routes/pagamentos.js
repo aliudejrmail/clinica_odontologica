@@ -1,6 +1,7 @@
 const { z } = require('zod');
 const PDFDocument = require('pdfkit');
 const prisma = require('../lib/prisma');
+const { decryptPaciente } = require('../lib/cpfCrypto');
 
 // Validações
 const pagamentoSchema = z.object({
@@ -254,10 +255,11 @@ async function pagamentoRoutes(fastify, options) {
       return reply.code(404).send({ error: 'Pagamento não encontrado' });
     }
 
+    if (pagamento.consulta?.paciente) {
+      pagamento.consulta.paciente = decryptPaciente(pagamento.consulta.paciente);
+    }
     return pagamento;
   });
-
-  // Criar pagamento
   fastify.post('/', {
     schema: {
       tags: ['pagamentos'],

@@ -1,10 +1,13 @@
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
+const { resolvePacienteId } = require('../lib/pacienteId');
+const { encrypt, decryptPaciente, decryptPacientes } = require('../lib/cpfCrypto');
 
 // Validações
 const pacienteSchema = z.object({
   nome: z.string().min(3, 'Nome deve ter no mínimo 3 caracteres'),
   cpf: z.string().regex(/^\d{11}$/, 'CPF deve ter 11 dígitos').optional(),
+  responsavel_cpf: z.string().regex(/^\d{11}$/, 'CPF do responsável deve ter 11 dígitos').optional(),
   data_nascimento: z.string().optional(),
   telefone: z.string().max(20, 'Telefone muito longo').optional(),
   email: z.string().email('Email inválido').optional(),
@@ -38,6 +41,7 @@ async function pacienteRoutes(fastify, options) {
                 type: 'object',
                 properties: {
                   id: { type: 'number' },
+                  uuid: { type: 'string', format: 'uuid' },
                   nome: { type: 'string' },
                   cpf: { type: 'string' },
                   telefone: { type: 'string' },
@@ -70,11 +74,14 @@ async function pacienteRoutes(fastify, options) {
     };
 
     if (search) {
+      const searchClean = search.replace(/\D/g, '');
       where.OR = [
         { nome: { contains: search, mode: 'insensitive' } },
-        { cpf: { contains: search.replace(/\D/g, '') } },
         { email: { contains: search, mode: 'insensitive' } }
       ];
+      if (searchClean.length === 11) {
+        where.OR.push({ cpf: encrypt(searchClean) });
+      }
     }
 
     if (ativo !== undefined) {
@@ -86,6 +93,7 @@ async function pacienteRoutes(fastify, options) {
         where,
         select: {
           id: true,
+          uuid: true,
           nome: true,
           cpf: true,
           telefone: true,
@@ -104,23 +112,23 @@ async function pacienteRoutes(fastify, options) {
     delete global.rlContext;
 
     return {
-      pacientes,
+      pacientes: decryptPacientes(pacientes),
       total,
       page,
       totalPages: Math.ceil(total / limit)
     };
   });
 
-  // Buscar paciente por ID
+  // Buscar paciente por ID (aceita UUID ou id numérico - LGPD: use UUID em URLs)
   fastify.get('/:id', {
     schema: {
       tags: ['pacientes'],
-      summary: 'Buscar paciente por ID',
+      summary: 'Buscar paciente por ID ou UUID',
       security: [{ bearerAuth: [] }],
       params: {
         type: 'object',
         properties: {
-          id: { type: 'number' }
+          id: { type: 'string' }
         },
         required: ['id']
       },
@@ -129,17 +137,13 @@ async function pacienteRoutes(fastify, options) {
           type: 'object',
           properties: {
             id: { type: 'number' },
+            uuid: { type: 'string', format: 'uuid' },
             nome: { type: 'string' },
             cpf: { type: 'string' },
             data_nascimento: { type: 'string', format: 'date' },
             telefone: { type: 'string' },
             email: { type: 'string' },
             endereco: { type: 'string' },
-            cep: { type: 'string' },
-            cidade: { type: 'string' },
-            estado: { type: 'string' },
-            alergias: { type: 'string' },
-            medicamentos: { type: 'string' },
             observacoes: { type: 'string' },
             ativo: { type: 'boolean' },
             created_at: { type: 'string', format: 'date-time' }
@@ -149,10 +153,14 @@ async function pacienteRoutes(fastify, options) {
     }
   }, async (request, reply) => {
     const { id } = request.params;
+    const pacienteId = await resolvePacienteId(id, request.user.clinica_id);
+    if (pacienteId == null) {
+      return reply.code(404).send({ error: 'Paciente não encontrado' });
+    }
 
     const paciente = await prisma.pacientes.findFirst({
       where: {
-        id: parseInt(id),
+        id: pacienteId,
         clinica_id: request.user.clinica_id
       }
     });
@@ -161,10 +169,8 @@ async function pacienteRoutes(fastify, options) {
       return reply.code(404).send({ error: 'Paciente não encontrado' });
     }
 
-    return paciente;
+    return decryptPaciente(paciente);
   });
-
-  // Criar paciente
   fastify.post('/', {
     schema: {
       tags: ['pacientes'],
@@ -188,6 +194,7 @@ async function pacienteRoutes(fastify, options) {
           type: 'object',
           properties: {
             id: { type: 'number' },
+            uuid: { type: 'string', format: 'uuid' },
             nome: { type: 'string' },
             cpf: { type: 'string' },
             telefone: { type: 'string' },
@@ -206,14 +213,18 @@ async function pacienteRoutes(fastify, options) {
         dados.data_nascimento = new Date(dados.data_nascimento);
       }
 
+      const payload = {
+        ...dados,
+        clinica_id: request.user.clinica_id
+      };
+      if (dados.cpf) payload.cpf = encrypt(dados.cpf.replace(/\D/g, ''));
+      if (dados.responsavel_cpf) payload.responsavel_cpf = encrypt(dados.responsavel_cpf.replace(/\D/g, ''));
+
       const paciente = await prisma.pacientes.create({
-        data: {
-          ...dados,
-          clinica_id: request.user.clinica_id
-        }
+        data: payload
       });
 
-      return reply.code(201).send(paciente);
+      return reply.code(201).send(decryptPaciente(paciente));
     } catch (error) {
       if (error instanceof z.ZodError) {
         return reply.code(400).send({ 
@@ -225,7 +236,7 @@ async function pacienteRoutes(fastify, options) {
     }
   });
 
-  // Atualizar paciente
+  // Atualizar paciente (aceita UUID ou id numérico)
   fastify.put('/:id', {
     schema: {
       tags: ['pacientes'],
@@ -234,7 +245,7 @@ async function pacienteRoutes(fastify, options) {
       params: {
         type: 'object',
         properties: {
-          id: { type: 'number' }
+          id: { type: 'string' }
         },
         required: ['id']
       },
@@ -254,6 +265,10 @@ async function pacienteRoutes(fastify, options) {
     }
   }, async (request, reply) => {
     const { id } = request.params;
+    const pacienteId = await resolvePacienteId(id, request.user.clinica_id);
+    if (pacienteId == null) {
+      return reply.code(404).send({ error: 'Paciente não encontrado' });
+    }
     
     try {
       const dados = pacienteSchema.partial().parse(request.body);
@@ -263,15 +278,19 @@ async function pacienteRoutes(fastify, options) {
         dados.data_nascimento = new Date(dados.data_nascimento);
       }
 
+      const payload = { ...dados };
+      if (dados.cpf !== undefined) payload.cpf = encrypt(dados.cpf.replace(/\D/g, ''));
+      if (dados.responsavel_cpf !== undefined) payload.responsavel_cpf = dados.responsavel_cpf ? encrypt(dados.responsavel_cpf.replace(/\D/g, '')) : null;
+
       const paciente = await prisma.pacientes.update({
         where: {
-          id: parseInt(id),
+          id: pacienteId,
           clinica_id: request.user.clinica_id
         },
-        data: dados
+        data: payload
       });
 
-      return paciente;
+      return decryptPaciente(paciente);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return reply.code(400).send({ 
@@ -306,6 +325,7 @@ async function pacienteRoutes(fastify, options) {
                 type: 'object',
                 properties: {
                   id: { type: 'number' },
+                  uuid: { type: 'string', format: 'uuid' },
                   nome: { type: 'string' },
                   data_nascimento: { type: 'string', format: 'date' },
                   telefone: { type: 'string' },
@@ -321,7 +341,7 @@ async function pacienteRoutes(fastify, options) {
     const mes = request.query.mes != null ? parseInt(request.query.mes, 10) : new Date().getMonth() + 1;
 
     const pacientes = await prisma.$queryRaw`
-      SELECT id, nome, data_nascimento, telefone, email
+      SELECT id, uuid, nome, cpf, data_nascimento, telefone, email
       FROM pacientes
       WHERE clinica_id = ${request.user.clinica_id}
         AND (ativo IS NULL OR ativo = true)
@@ -329,7 +349,7 @@ async function pacienteRoutes(fastify, options) {
       ORDER BY EXTRACT(DAY FROM data_nascimento), nome
     `;
 
-    return { aniversariantes: pacientes };
+    return { aniversariantes: decryptPacientes(pacientes) };
   });
 
   // Buscar paciente por CPF
@@ -348,19 +368,25 @@ async function pacienteRoutes(fastify, options) {
     }
   }, async (request, reply) => {
     const { cpf } = request.params;
+    const cpfNorm = cpf.replace(/\D/g, '');
+    if (cpfNorm.length !== 11) {
+      return reply.code(400).send({ error: 'CPF inválido' });
+    }
 
-    const paciente = await prisma.pacientes.findFirst({
-      where: {
-        cpf: cpf.replace(/\D/g, ''),
-        clinica_id: request.user.clinica_id
-      }
+    let paciente = await prisma.pacientes.findFirst({
+      where: { cpf: encrypt(cpfNorm), clinica_id: request.user.clinica_id }
     });
+    if (!paciente) {
+      paciente = await prisma.pacientes.findFirst({
+        where: { cpf: cpfNorm, clinica_id: request.user.clinica_id }
+      });
+    }
 
     if (!paciente) {
       return reply.code(404).send({ error: 'Paciente não encontrado' });
     }
 
-    return paciente;
+    return decryptPaciente(paciente);
   });
 }
 

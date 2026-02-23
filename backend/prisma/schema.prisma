@@ -30,15 +30,16 @@ model users {
 
 model pacientes {
   id                   Int       @id @default(autoincrement())
+  uuid                 String?   @unique @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   clinica_id           Int
   nome                 String    @db.VarChar(255)
-  cpf                  String    @unique @db.VarChar(11)
+  cpf                  String    @unique @db.VarChar(128)
   data_nascimento      DateTime  @db.Date
   telefone             String?   @db.VarChar(20)
   email                String?   @db.VarChar(255)
   endereco             String?
   responsavel_nome     String?   @db.VarChar(255)
-  responsavel_cpf      String?   @db.VarChar(11)
+  responsavel_cpf      String?   @db.VarChar(128)
   responsavel_telefone String?   @db.VarChar(20)
   observacoes          String?
   ativo                Boolean?  @default(true)
@@ -48,6 +49,7 @@ model pacientes {
   @@index([clinica_id], map: "idx_pacientes_clinica")
   @@index([clinica_id], map: "idx_pacientes_clinica_id")
   @@index([cpf], map: "idx_pacientes_cpf")
+  @@index([uuid], map: "idx_pacientes_uuid")
 }
 
 model dentistas {
@@ -80,6 +82,7 @@ model consultas {
   updated_at      DateTime? @default(now()) @db.Timestamp(6)
 
   @@index([clinica_id], map: "idx_consultas_clinica")
+  @@index([clinica_id, status, data_hora], map: "idx_consultas_clinica_status_data")
   @@index([dentista_id], map: "idx_consultas_dentista")
   @@index([paciente_id], map: "idx_consultas_paciente")
 }
@@ -133,17 +136,39 @@ model odontogramas {
 }
 
 model pagamentos {
-  id              Int       @id @default(autoincrement())
-  clinica_id      Int
-  consulta_id     Int
-  forma_pagamento String    @db.VarChar(50)
-  valor           Decimal   @db.Decimal(10, 2)
-  data_pagamento  DateTime? @default(now()) @db.Timestamp(6)
-  parcelas        Int?      @default(1)
-  observacoes     String?
-  created_at      DateTime? @default(now()) @db.Timestamp(6)
+  id                Int       @id @default(autoincrement())
+  clinica_id        Int
+  consulta_id       Int
+  forma_pagamento   String    @db.VarChar(50)
+  valor             Decimal   @db.Decimal(10, 2)
+  data_pagamento    DateTime? @default(now()) @db.Timestamp(6)
+  parcelas          Int?      @default(1)
+  observacoes       String?
+  created_at        DateTime? @default(now()) @db.Timestamp(6)
+  provider_reference String?  @db.VarChar(255)
+  gateway_response  Json?
+  status_webhook    String?   @db.VarChar(100)
 
   @@index([consulta_id], map: "idx_pagamentos_consulta")
+}
+
+model notas_fiscais {
+  id            Int       @id @default(autoincrement())
+  clinica_id    Int
+  pagamento_id  Int
+  numero        String?   @db.VarChar(20)
+  serie         String?   @db.VarChar(10)
+  chave_acesso  String?   @db.VarChar(44)
+  xml_path      String?   @db.VarChar(500)
+  pdf_path      String?   @db.VarChar(500)
+  data_emissao  DateTime? @db.Timestamp(6)
+  status        String    @db.VarChar(20) @default("rascunho")
+  created_at    DateTime? @default(now()) @db.Timestamp(6)
+  updated_at    DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([clinica_id], map: "idx_notas_fiscais_clinica")
+  @@index([pagamento_id], map: "idx_notas_fiscais_pagamento")
+  @@index([chave_acesso], map: "idx_notas_fiscais_chave")
 }
 
 model anamnese_perguntas {

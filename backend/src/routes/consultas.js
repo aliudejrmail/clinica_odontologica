@@ -1,9 +1,11 @@
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
+const { resolvePacienteId } = require('../lib/pacienteId');
+const { decryptPaciente } = require('../lib/cpfCrypto');
 
-// Validações
+// Validações (paciente_id pode ser number ou UUID; resolvido no handler)
 const consultaSchema = z.object({
-  paciente_id: z.number().int().positive(),
+  paciente_id: z.union([z.number().int().positive(), z.string().min(1)]),
   dentista_id: z.number().int().positive(),
   data_consulta: z.union([z.string().datetime(), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)]),
   hora_inicio: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Hora inválida'),
@@ -29,7 +31,9 @@ function mapConsultaToApi(consulta) {
   const duracao = consulta.duracao_minutos || 60;
   const end = dt ? new Date(dt.getTime() + duracao * 60000) : null;
   const hora_fim = end ? end.toTimeString().slice(0, 5) : null;
-  return { ...consulta, data_consulta, hora_inicio, hora_fim };
+  const mapped = { ...consulta, data_consulta, hora_inicio, hora_fim };
+  if (mapped.paciente) mapped.paciente = decryptPaciente(mapped.paciente);
+  return mapped;
 }
 
 function buildDataHora(dataConsultaStr, horaInicioStr, duracaoMinutos = 60) {
@@ -116,7 +120,13 @@ async function consultaRoutes(fastify, options) {
       if (data_fim) where.data_hora.lte = new Date(data_fim + 'T23:59:59.999');
     }
 
-    if (paciente_id) where.paciente_id = parseInt(paciente_id);
+    if (paciente_id) {
+      const resolved = await resolvePacienteId(
+        typeof paciente_id === 'number' ? String(paciente_id) : paciente_id,
+        request.user.clinica_id
+      );
+      if (resolved != null) where.paciente_id = resolved;
+    }
     if (dentista_id) where.dentista_id = parseInt(dentista_id);
     if (status) where.status = status;
 
@@ -283,12 +293,20 @@ async function consultaRoutes(fastify, options) {
     }
   }, async (request, reply) => {
     try {
-      const dados = consultaSchema.parse(request.body);
+      const raw = request.body;
+      const pacienteIdResolved = await resolvePacienteId(
+        typeof raw.paciente_id === 'number' ? String(raw.paciente_id) : raw.paciente_id,
+        request.user.clinica_id
+      );
+      if (pacienteIdResolved == null) {
+        return reply.code(404).send({ error: 'Paciente não encontrado' });
+      }
+      const dados = consultaSchema.parse({ ...raw, paciente_id: raw.paciente_id });
 
       // Verificar se paciente existe e pertence à clínica
       const paciente = await prisma.pacientes.findFirst({
         where: {
-          id: dados.paciente_id,
+          id: pacienteIdResolved,
           clinica_id: request.user.clinica_id
         }
       });
@@ -339,7 +357,7 @@ async function consultaRoutes(fastify, options) {
       const consulta = await prisma.consultas.create({
         data: {
           clinica_id: request.user.clinica_id,
-          paciente_id: dados.paciente_id,
+          paciente_id: pacienteIdResolved,
           dentista_id: dados.dentista_id,
           data_hora: newStart,
           duracao_minutos: duracaoMinutos,

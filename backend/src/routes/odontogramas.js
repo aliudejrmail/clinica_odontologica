@@ -1,9 +1,11 @@
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
+const { resolvePacienteId } = require('../lib/pacienteId');
+const { decryptPaciente } = require('../lib/cpfCrypto');
 
-// Validações
+// Validações (paciente_id no body pode ser number ou string UUID; resolvido no handler)
 const odontogramaSchema = z.object({
-  paciente_id: z.number().int().positive(),
+  paciente_id: z.union([z.number().int().positive(), z.string().min(1)]),
   dente_num: z.string().regex(/^([1-8][1-8]|[1-5]1)$/, 'Dente inválido (use formato ISO 3950, ex: 11, 12, 21, 31)'),
   estado: z.enum(['sadio', 'cariado', 'obturado', 'ausente', 'extraido', 'implante', 'coroa', 'ponte', 'tratamento']),
   faces: z.object({
@@ -21,12 +23,12 @@ async function odontogramaRoutes(fastify, options) {
   fastify.get('/paciente/:paciente_id', {
     schema: {
       tags: ['odontograma'],
-      summary: 'Buscar odontograma completo do paciente',
+      summary: 'Buscar odontograma completo do paciente (ID ou UUID)',
       security: [{ bearerAuth: [] }],
       params: {
         type: 'object',
         properties: {
-          paciente_id: { type: 'number' }
+          paciente_id: { type: 'string' }
         },
         required: ['paciente_id']
       },
@@ -61,13 +63,13 @@ async function odontogramaRoutes(fastify, options) {
     }
   }, async (request, reply) => {
     const { paciente_id } = request.params;
+    const pacienteId = await resolvePacienteId(paciente_id, request.user.clinica_id);
+    if (pacienteId == null) {
+      return reply.code(404).send({ error: 'Paciente não encontrado' });
+    }
 
-    // Verificar se paciente existe e pertence à clínica
     const paciente = await prisma.pacientes.findFirst({
-      where: {
-        id: parseInt(paciente_id),
-        clinica_id: request.user.clinica_id
-      }
+      where: { id: pacienteId, clinica_id: request.user.clinica_id }
     });
 
     if (!paciente) {
@@ -76,18 +78,19 @@ async function odontogramaRoutes(fastify, options) {
 
     const dentes = await prisma.odontogramas.findMany({
       where: {
-        paciente_id: parseInt(paciente_id),
+        paciente_id: pacienteId,
         clinica_id: request.user.clinica_id
       },
       orderBy: { dente_num: 'asc' }
     });
 
     return {
-      paciente: {
+      paciente: decryptPaciente({
         id: paciente.id,
+        uuid: paciente.uuid,
         nome: paciente.nome,
         cpf: paciente.cpf
-      },
+      }),
       dentes
     };
   });
@@ -101,7 +104,7 @@ async function odontogramaRoutes(fastify, options) {
       params: {
         type: 'object',
         properties: {
-          paciente_id: { type: 'number' },
+          paciente_id: { type: 'string' },
           dente_num: { type: 'string' }
         },
         required: ['paciente_id', 'dente_num']
@@ -109,10 +112,14 @@ async function odontogramaRoutes(fastify, options) {
     }
   }, async (request, reply) => {
     const { paciente_id, dente_num } = request.params;
+    const pacienteId = await resolvePacienteId(paciente_id, request.user.clinica_id);
+    if (pacienteId == null) {
+      return reply.code(404).send({ error: 'Paciente não encontrado' });
+    }
 
     const dente = await prisma.odontogramas.findFirst({
       where: {
-        paciente_id: parseInt(paciente_id),
+        paciente_id: pacienteId,
         dente_num,
         clinica_id: request.user.clinica_id
       }
@@ -167,12 +174,20 @@ async function odontogramaRoutes(fastify, options) {
     }
   }, async (request, reply) => {
     try {
-      const dados = odontogramaSchema.parse(request.body);
+      const raw = request.body;
+      const pacienteIdResolved = await resolvePacienteId(
+        typeof raw.paciente_id === 'number' ? String(raw.paciente_id) : raw.paciente_id,
+        request.user.clinica_id
+      );
+      if (pacienteIdResolved == null) {
+        return reply.code(404).send({ error: 'Paciente não encontrado' });
+      }
+      const dados = odontogramaSchema.parse({ ...raw, paciente_id: raw.paciente_id });
 
       // Verificar se paciente existe
       const paciente = await prisma.pacientes.findFirst({
         where: {
-          id: dados.paciente_id,
+          id: pacienteIdResolved,
           clinica_id: request.user.clinica_id
         }
       });
@@ -184,7 +199,7 @@ async function odontogramaRoutes(fastify, options) {
       // Verificar se já existe registro para este dente
       const denteExistente = await prisma.odontogramas.findFirst({
         where: {
-          paciente_id: dados.paciente_id,
+          paciente_id: pacienteIdResolved,
           dente_num: dados.dente_num,
           clinica_id: request.user.clinica_id
         }
@@ -209,7 +224,7 @@ async function odontogramaRoutes(fastify, options) {
         dente = await prisma.odontogramas.create({
           data: {
             clinica_id: request.user.clinica_id,
-            paciente_id: dados.paciente_id,
+            paciente_id: pacienteIdResolved,
             dente_num: dados.dente_num,
             estado: dados.estado,
             faces: dados.faces || null,
@@ -241,7 +256,7 @@ async function odontogramaRoutes(fastify, options) {
       body: {
         type: 'object',
         properties: {
-          paciente_id: { type: 'number' },
+          paciente_id: { type: ['number', 'string'] },
           dentes: {
             type: 'array',
             items: {
@@ -260,12 +275,20 @@ async function odontogramaRoutes(fastify, options) {
       }
     }
   }, async (request, reply) => {
-    const { paciente_id, dentes } = request.body;
+    const rawPacienteId = request.body.paciente_id;
+    const pacienteId = await resolvePacienteId(
+      typeof rawPacienteId === 'number' ? String(rawPacienteId) : rawPacienteId,
+      request.user.clinica_id
+    );
+    if (pacienteId == null) {
+      return reply.code(404).send({ error: 'Paciente não encontrado' });
+    }
 
-    // Verificar se paciente existe
+    const { dentes } = request.body;
+
     const paciente = await prisma.pacientes.findFirst({
       where: {
-        id: parseInt(paciente_id),
+        id: pacienteId,
         clinica_id: request.user.clinica_id
       }
     });
@@ -280,7 +303,7 @@ async function odontogramaRoutes(fastify, options) {
       try {
         // Validar dente individualmente
         const denteValidado = odontogramaSchema.parse({
-          paciente_id,
+          paciente_id: pacienteId,
           dente_num: denteData.dente_num,
           estado: denteData.estado,
           faces: denteData.faces,
@@ -290,7 +313,7 @@ async function odontogramaRoutes(fastify, options) {
         // Verificar se já existe
         const denteExistente = await prisma.odontogramas.findFirst({
           where: {
-            paciente_id,
+            paciente_id: pacienteId,
             dente_num: denteValidado.dente_num,
             clinica_id: request.user.clinica_id
           }
@@ -312,7 +335,7 @@ async function odontogramaRoutes(fastify, options) {
           resultado = await prisma.odontogramas.create({
             data: {
               clinica_id: request.user.clinica_id,
-              paciente_id,
+              paciente_id: pacienteId,
               dente_num: denteValidado.dente_num,
               estado: denteValidado.estado,
               faces: denteValidado.faces || null,
@@ -348,18 +371,21 @@ async function odontogramaRoutes(fastify, options) {
       params: {
         type: 'object',
         properties: {
-          paciente_id: { type: 'number' }
+          paciente_id: { type: 'string' }
         },
         required: ['paciente_id']
       }
     }
   }, async (request, reply) => {
     const { paciente_id } = request.params;
+    const pacienteId = await resolvePacienteId(paciente_id, request.user.clinica_id);
+    if (pacienteId == null) {
+      return reply.code(404).send({ error: 'Paciente não encontrado' });
+    }
 
-    // Verificar se paciente existe
     const paciente = await prisma.pacientes.findFirst({
       where: {
-        id: parseInt(paciente_id),
+        id: pacienteId,
         clinica_id: request.user.clinica_id
       }
     });
@@ -371,7 +397,7 @@ async function odontogramaRoutes(fastify, options) {
     const estatisticas = await prisma.odontogramas.groupBy({
       by: ['estado'],
       where: {
-        paciente_id: parseInt(paciente_id),
+        paciente_id: pacienteId,
         clinica_id: request.user.clinica_id
       },
       _count: {
@@ -381,7 +407,7 @@ async function odontogramaRoutes(fastify, options) {
 
     const totalDentes = await prisma.odontogramas.count({
       where: {
-        paciente_id: parseInt(paciente_id),
+        paciente_id: pacienteId,
         clinica_id: request.user.clinica_id
       }
     });

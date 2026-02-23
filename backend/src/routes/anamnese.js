@@ -1,5 +1,6 @@
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
+const { resolvePacienteId } = require('../lib/pacienteId');
 
 const perguntaSchema = z.object({
   pergunta: z.string().min(1).max(500),
@@ -163,7 +164,7 @@ async function anamneseRoutes(fastify) {
       tags: ['anamnese'],
       summary: 'Obter anamnese do paciente',
       security: [{ bearerAuth: [] }],
-      params: { type: 'object', properties: { pacienteId: { type: 'number' } }, required: ['pacienteId'] },
+      params: { type: 'object', properties: { pacienteId: { type: 'string' } }, required: ['pacienteId'] },
       response: {
         200: {
           type: 'object',
@@ -175,11 +176,8 @@ async function anamneseRoutes(fastify) {
       }
     }
   }, async (request, reply) => {
-    const pacienteId = parseInt(request.params.pacienteId);
-    const paciente = await prisma.pacientes.findFirst({
-      where: { id: pacienteId, clinica_id: request.user.clinica_id }
-    });
-    if (!paciente) return reply.code(404).send({ error: 'Paciente não encontrado' });
+    const pacienteId = await resolvePacienteId(request.params.pacienteId, request.user.clinica_id);
+    if (pacienteId == null) return reply.code(404).send({ error: 'Paciente não encontrado' });
 
     const [perguntas, respostasList] = await Promise.all([
       prisma.anamnese_perguntas.findMany({
@@ -205,7 +203,7 @@ async function anamneseRoutes(fastify) {
       tags: ['anamnese'],
       summary: 'Salvar anamnese do paciente',
       security: [{ bearerAuth: [] }],
-      params: { type: 'object', properties: { pacienteId: { type: 'number' } }, required: ['pacienteId'] },
+      params: { type: 'object', properties: { pacienteId: { type: 'string' } }, required: ['pacienteId'] },
       body: {
         type: 'object',
         properties: {
@@ -223,11 +221,8 @@ async function anamneseRoutes(fastify) {
       response: { 200: { type: 'object', properties: { ok: { type: 'boolean' } } } }
     }
   }, async (request, reply) => {
-    const pacienteId = parseInt(request.params.pacienteId);
-    const paciente = await prisma.pacientes.findFirst({
-      where: { id: pacienteId, clinica_id: request.user.clinica_id }
-    });
-    if (!paciente) return reply.code(404).send({ error: 'Paciente não encontrado' });
+    const pacienteId = await resolvePacienteId(request.params.pacienteId, request.user.clinica_id);
+    if (pacienteId == null) return reply.code(404).send({ error: 'Paciente não encontrado' });
 
     const { respostas: respostasPayload } = respostasSchema.parse(request.body);
 

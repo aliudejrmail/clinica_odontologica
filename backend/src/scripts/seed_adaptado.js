@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
+const { encrypt } = require('../lib/cpfCrypto');
 
 const prisma = new PrismaClient();
 
@@ -171,7 +172,7 @@ async function main() {
           data: {
             clinica_id: clinica.id,
             nome: 'Carlos Eduardo',
-            cpf: '12345678901',
+            cpf: encrypt('12345678901'),
             data_nascimento: new Date('1990-05-15'),
             telefone: '(11) 91234-5678',
             email: 'carlos@email.com',
@@ -183,7 +184,7 @@ async function main() {
           data: {
             clinica_id: clinica.id,
             nome: 'Maria Silva',
-            cpf: '98765432109',
+            cpf: encrypt('98765432109'),
             data_nascimento: new Date('1985-08-22'),
             telefone: '(11) 98765-4321',
             email: 'maria@email.com',
@@ -195,7 +196,7 @@ async function main() {
           data: {
             clinica_id: clinica.id,
             nome: 'João Santos',
-            cpf: '45678912301',
+            cpf: encrypt('45678912301'),
             data_nascimento: new Date('1992-03-10'),
             telefone: '(11) 99876-5432',
             email: 'joao@email.com',
@@ -206,7 +207,7 @@ async function main() {
           data: {
             clinica_id: clinica.id,
             nome: 'Ana Paula',
-            cpf: '32109876543',
+            cpf: encrypt('32109876543'),
             data_nascimento: new Date('1988-12-05'),
             telefone: '(11) 93456-7890',
             email: 'ana@email.com',

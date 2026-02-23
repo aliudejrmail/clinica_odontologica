@@ -11,6 +11,7 @@
     "generate": "prisma generate",
     "studio": "prisma studio",
     "seed": "node src/scripts/seed_adaptado.js",
+    "encrypt-cpfs": "node src/scripts/encrypt_cpfs.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

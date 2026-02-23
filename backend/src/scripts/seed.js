@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const prisma = require('../lib/prisma');
+const { encrypt } = require('../lib/cpfCrypto');
 
 async function main() {
   console.log('🌱 Iniciando seed do banco de dados...');
@@ -144,7 +145,7 @@ async function main() {
     prisma.pacientes.create({
       data: {
         nome: 'Carlos Eduardo Silva',
-        cpf: '12345678901',
+        cpf: encrypt('12345678901'),
         rg: '12345678',
         data_nascimento: new Date('1985-03-15'),
         telefone: '(11) 91234-5678',
@@ -158,7 +159,7 @@ async function main() {
     prisma.pacientes.create({
       data: {
         nome: 'Juliana Pereira Santos',
-        cpf: '98765432109',
+        cpf: encrypt('98765432109'),
         rg: '87654321',
         data_nascimento: new Date('1990-07-22'),
         telefone: '(11) 98765-4321',
@@ -172,7 +173,7 @@ async function main() {
     prisma.pacientes.create({
       data: {
         nome: 'Roberto Almeida Costa',
-        cpf: '45678912301',
+        cpf: encrypt('45678912301'),
         rg: '45678912',
         data_nascimento: new Date('1978-11-10'),
         telefone: '(11) 99876-5432',
@@ -186,7 +187,7 @@ async function main() {
     prisma.pacientes.create({
       data: {
         nome: 'Mariana Ferreira Lima',
-        cpf: '32109876543',
+        cpf: encrypt('32109876543'),
         rg: '32109876',
         data_nascimento: new Date('1995-02-28'),
         telefone: '(11) 91234-9876',
